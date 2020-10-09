@@ -45,22 +45,16 @@
 #if ESP32
 
   #include <AsyncTCP.h>
-  #define _lock       xSemaphoreTakeRecursive(threadLock,portMAX_DELAY)
-  #define _unlock     xSemaphoreGiveRecursive(threadLock)
   
 #elif ESP8266
 
   #include <ESPAsyncTCP.h>
-  #define _lock
-  #define _unlock
   
 #elif ( defined(STM32F0) || defined(STM32F1) || defined(STM32F2) || defined(STM32F3)  ||defined(STM32F4) || defined(STM32F7) || \
        defined(STM32L0) || defined(STM32L1) || defined(STM32L4) || defined(STM32H7)  ||defined(STM32G0) || defined(STM32G4) || \
        defined(STM32WB) || defined(STM32MP1) )
        
   #include "STM32AsyncTCP.h"
-  #define _lock
-  #define _unlock
   
 #endif
 
@@ -87,11 +81,12 @@
 
 enum class ReadyState
 {
-  Unsent      = 0,            // Client created, open not yet called
-  Opened      = 1,            // open() has been called, connected
-  HdrsRecvd   = 2,            // send() called, response headers available
-  Loading     = 3,            // receiving, partial data available
-  Done        = 4             // Request complete, all data available.
+    Idle,              // Client created, open not yet called
+    Unsent,            // open() has been called, not connected
+    Opened,            // open() has been called, connected
+    HdrsRecvd,         // send() called, response headers available
+    Loading,           // receiving, partial data available
+    Done               // Request complete, all data available.
 };
     
 class AsyncHTTPRequest

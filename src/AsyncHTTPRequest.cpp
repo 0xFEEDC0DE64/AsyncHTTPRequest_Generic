@@ -26,8 +26,39 @@
 
 #include "AsyncHTTPRequest.h"
 
+namespace {
+#if ESP32
+class LockHelper
+{
+public:
+    LockHelper(QueueHandle_t _xMutex) :
+        xMutex{_xMutex}
+    {
+        xSemaphoreTakeRecursive(xMutex, portMAX_DELAY);
+    }
+    ~LockHelper()
+    {
+        xSemaphoreGiveRecursive(xMutex);
+    }
+
+private:
+    const QueueHandle_t xMutex;
+};
+#define _lock LockHelper lock{this->threadLock}
+#define _unlock
+#elif ESP8266
+#define _lock
+#define _unlock
+#elif ( defined(STM32F0) || defined(STM32F1) || defined(STM32F2) || defined(STM32F3)  ||defined(STM32F4) || defined(STM32F7) || \
+       defined(STM32L0) || defined(STM32L1) || defined(STM32L4) || defined(STM32H7)  ||defined(STM32G0) || defined(STM32G4) || \
+       defined(STM32WB) || defined(STM32MP1) )
+#define _lock
+#define _unlock
+#endif
+}
+
 //**************************************************************************************************************
-AsyncHTTPRequest::AsyncHTTPRequest(): _readyState(ReadyState::Unsent), _HTTPcode(0), _chunked(false), _debug(DEBUG_IOTA_HTTP_SET)
+AsyncHTTPRequest::AsyncHTTPRequest(): _readyState(ReadyState::Idle), _HTTPcode(0), _chunked(false), _debug(DEBUG_IOTA_HTTP_SET)
   , _timeout(DEFAULT_RX_TIMEOUT), _lastActivity(0), _requestStartTime(0), _requestEndTime(0), _URL(nullptr)
   , _connectedHost(nullptr), _connectedPort(-1), _client(nullptr), _contentLength(0), _contentRead(0)
   , _readyStateChangeCB(nullptr), _readyStateChangeCBarg(nullptr), _onDataCB(nullptr), _onDataCBarg(nullptr)
@@ -37,6 +68,7 @@ AsyncHTTPRequest::AsyncHTTPRequest(): _readyState(ReadyState::Unsent), _HTTPcode
   threadLock = xSemaphoreCreateRecursiveMutex();
 #endif
 }
+
 
 //**************************************************************************************************************
 AsyncHTTPRequest::~AsyncHTTPRequest()
@@ -79,7 +111,7 @@ bool  AsyncHTTPRequest::open(const char* method, const char* URL)
 {
   AHTTP_LOGDEBUG3("open(", method, ", url =", URL);
 
-  if (_readyState != ReadyState::Unsent && _readyState != ReadyState::Done)
+  if (_readyState != ReadyState::Idle && _readyState != ReadyState::Unsent && _readyState != ReadyState::Done)
   {
     return false;
   }
@@ -121,10 +153,9 @@ bool  AsyncHTTPRequest::open(const char* method, const char* URL)
     return false;
   }
 
-  char* hostName = new char[strlen(_URL->host) + 10];
+  char hostName[strlen(_URL->host) + 10];
   sprintf(hostName, "%s:%d", _URL->host, _URL->port);
   _addHeader("host", hostName);
-  delete[] hostName;
   _lastActivity = millis();
 
   return _connect();
