@@ -30,7 +30,7 @@
 
 #include <Arduino.h>
 
-#include "AsyncHTTPRequest_Debug_Generic.h"
+#include "AsyncHTTPRequest_Debug.h"
 
 #ifndef DEBUG_IOTA_PORT
   #define DEBUG_IOTA_PORT Serial
@@ -85,14 +85,14 @@
 #define HTTPCODE_STREAM_WRITE        (-10)
 #define HTTPCODE_TIMEOUT             (-11)
 
-typedef enum
+enum class ReadyState
 {
-  readyStateUnsent      = 0,            // Client created, open not yet called
-  readyStateOpened      = 1,            // open() has been called, connected
-  readyStateHdrsRecvd   = 2,            // send() called, response headers available
-  readyStateLoading     = 3,            // receiving, partial data available
-  readyStateDone        = 4             // Request complete, all data available.
-} reqStates;
+  Unsent      = 0,            // Client created, open not yet called
+  Opened      = 1,            // open() has been called, connected
+  HdrsRecvd   = 2,            // send() called, response headers available
+  Loading     = 3,            // receiving, partial data available
+  Done        = 4             // Request complete, all data available.
+};
     
 class AsyncHTTPRequest
 {
@@ -140,8 +140,8 @@ class AsyncHTTPRequest
       }
     };
 
-    typedef std::function<void(void*, AsyncHTTPRequest*, int readyState)> readyStateChangeCB;
-    typedef std::function<void(void*, AsyncHTTPRequest*, size_t available)> onDataCB;
+    using readyStateChangeCB = std::function<void(void*, AsyncHTTPRequest*, ReadyState readyState)>;
+    using onDataCB = std::function<void(void*, AsyncHTTPRequest*, size_t available)>;
 
   public:
     AsyncHTTPRequest();
@@ -151,12 +151,13 @@ class AsyncHTTPRequest
     //External functions in typical order of use:
     //__________________________________________________________________________________________________________*/
     void        setDebug(bool);                                         // Turn debug message on/off
-    bool        debug();                                                // is debug on or off?
+    bool        debug() const;                                          // is debug on or off?
 
-    bool        open(const char* /*GET/POST*/, const char* URL);        // Initiate a request
+    bool        open(const char* method, const char* URL);              // Initiate a request
     void        onReadyStateChange(readyStateChangeCB, void* arg = 0);  // Optional event handler for ready state change
+    void        onReadyStateChangeArg(void* arg = 0);                   // set event handlers arg
     // or you can simply poll readyState()
-    void        setTimeout(int);                                        // overide default timeout (seconds)
+    void        setTimeout(int seconds);                                // overide default timeout (seconds)
 
     void        setReqHeader(const char* name, const char* value);      // add a request header
     void        setReqHeader(const char* name, int32_t value);          // overload to use integer value
@@ -175,7 +176,7 @@ class AsyncHTTPRequest
     bool        send(xbuf* body, size_t len);                           // Send the request (POST) data in an xbuf
     void        abort();                                                // Abort the current operation
 
-    reqStates   readyState();                                           // Return the ready state
+    ReadyState  readyState() const;                                     // Return the ready state
 
     int         respHeaderCount();                                      // Retrieve count of response headers
     char*       respHeaderName(int index);                              // Return header name by index
@@ -192,20 +193,20 @@ class AsyncHTTPRequest
     String      headers();                                              // Return all headers as String
 
     void        onData(onDataCB, void* arg = 0);                        // Notify when min data is available
-    size_t      available();                                            // response available
-    size_t      responseLength();                                       // indicated response length or sum of chunks to date
-    int         responseHTTPcode();                                     // HTTP response code or (negative) error code
+    size_t      available() const;                                      // response available
+    size_t      responseLength() const;                                 // indicated response length or sum of chunks to date
+    int         responseHTTPcode() const;                               // HTTP response code or (negative) error code
     String      responseText();                                         // response (whole* or partial* as string)
     size_t      responseRead(uint8_t* buffer, size_t len);              // Read response into buffer
-    uint32_t    elapsedTime();                                         // Elapsed time of in progress transaction or last completed (ms)
-    String      version();                                              // Version of AsyncHTTPRequest
+    uint32_t    elapsedTime() const;                                    // Elapsed time of in progress transaction or last completed (ms)
+    String      version() const;                                        // Version of AsyncHTTPRequest
     //___________________________________________________________________________________________________________________________________
 
   private:
 
     enum    {HTTPmethodGET, HTTPmethodPOST} _HTTPmethod;
 
-    reqStates _readyState;
+    ReadyState _readyState;
 
     int16_t         _HTTPcode;                  // HTTP response code or (negative) exception code
     bool            _chunked;                   // Processing chunked response
@@ -247,7 +248,7 @@ class AsyncHTTPRequest
     void        _processChunks();
     bool        _connect();
     size_t      _send();
-    void        _setReadyState(reqStates);
+    void        _setReadyState(ReadyState readyState);
     
 #if (ESP32 || ESP8266)    
     char*       _charstar(const __FlashStringHelper *str);

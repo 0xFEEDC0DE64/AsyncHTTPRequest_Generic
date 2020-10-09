@@ -1,5 +1,5 @@
 /****************************************************************************************************************************
-  AsyncHTTPRequest_Impl_Generic.h - Dead simple AsyncHTTPRequest for ESP8266, ESP32 and currently STM32 with built-in LAN8742A Ethernet
+  AsyncHTTPRequest.cpp - Dead simple AsyncHTTPRequest for ESP8266, ESP32 and currently STM32 with built-in LAN8742A Ethernet
   
   For ESP8266, ESP32 and STM32 with built-in LAN8742A Ethernet (Nucleo-144, DISCOVERY, etc)
   
@@ -24,10 +24,10 @@
   1.0.0    K Hoang     14/09/2020 Initial coding to add support to STM32 using built-in Ethernet (Nucleo-144, DISCOVERY, etc).
  *****************************************************************************************************************************/
 
-#include "AsyncHTTPRequest_Generic.h"
+#include "AsyncHTTPRequest.h"
 
 //**************************************************************************************************************
-AsyncHTTPRequest::AsyncHTTPRequest(): _readyState(readyStateUnsent), _HTTPcode(0), _chunked(false), _debug(DEBUG_IOTA_HTTP_SET)
+AsyncHTTPRequest::AsyncHTTPRequest(): _readyState(ReadyState::Unsent), _HTTPcode(0), _chunked(false), _debug(DEBUG_IOTA_HTTP_SET)
   , _timeout(DEFAULT_RX_TIMEOUT), _lastActivity(0), _requestStartTime(0), _requestEndTime(0), _URL(nullptr)
   , _connectedHost(nullptr), _connectedPort(-1), _client(nullptr), _contentLength(0), _contentRead(0)
   , _readyStateChangeCB(nullptr), _readyStateChangeCBarg(nullptr), _onDataCB(nullptr), _onDataCBarg(nullptr)
@@ -69,9 +69,9 @@ void AsyncHTTPRequest::setDebug(bool debug)
 }
 
 //**************************************************************************************************************
-bool AsyncHTTPRequest::debug()
+bool AsyncHTTPRequest::debug() const
 {
-  return (_debug);
+  return _debug;
 }
 
 //**************************************************************************************************************
@@ -79,7 +79,7 @@ bool  AsyncHTTPRequest::open(const char* method, const char* URL)
 {
   AHTTP_LOGDEBUG3("open(", method, ", url =", URL);
 
-  if (_readyState != readyStateUnsent && _readyState != readyStateDone)
+  if (_readyState != ReadyState::Unsent && _readyState != ReadyState::Done)
   {
     return false;
   }
@@ -99,7 +99,7 @@ bool  AsyncHTTPRequest::open(const char* method, const char* URL)
   _chunks       = nullptr;
   _chunked      = false;
   _contentRead  = 0;
-  _readyState   = readyStateUnsent;
+  _readyState   = ReadyState::Unsent;
 
   if (strcmp(method, "GET") == 0)
   {
@@ -130,9 +130,15 @@ bool  AsyncHTTPRequest::open(const char* method, const char* URL)
   return _connect();
 }
 //**************************************************************************************************************
-void AsyncHTTPRequest::onReadyStateChange(readyStateChangeCB cb, void* arg) 
+void AsyncHTTPRequest::onReadyStateChange(readyStateChangeCB cb, void* arg)
 {
   _readyStateChangeCB = cb;
+  _readyStateChangeCBarg = arg;
+}
+
+//**************************************************************************************************************
+void AsyncHTTPRequest::onReadyStateChangeArg(void* arg)
+{
   _readyStateChangeCBarg = arg;
 }
 
@@ -261,13 +267,13 @@ void AsyncHTTPRequest::abort()
   _unlock;
 }
 //**************************************************************************************************************
-reqStates   AsyncHTTPRequest::readyState()
+ReadyState  AsyncHTTPRequest::readyState() const
 {
   return _readyState;
 }
 
 //**************************************************************************************************************
-int AsyncHTTPRequest::responseHTTPcode()
+int AsyncHTTPRequest::responseHTTPcode() const
 {
   return _HTTPcode;
 }
@@ -279,7 +285,7 @@ String AsyncHTTPRequest::responseText()
 
   _lock;
   
-  if ( ! _response || _readyState < readyStateLoading || ! available())
+  if ( ! _response || _readyState < ReadyState::Loading || ! available())
   {
     AHTTP_LOGDEBUG("responseText() no data");
 
@@ -315,7 +321,7 @@ String AsyncHTTPRequest::responseText()
 //**************************************************************************************************************
 size_t AsyncHTTPRequest::responseRead(uint8_t* buf, size_t len)
 {
-  if ( ! _response || _readyState < readyStateLoading || ! available())
+  if ( ! _response || _readyState < ReadyState::Loading || ! available())
   {
     //DEBUG_HTTP("responseRead() no data\r\n");
     AHTTP_LOGDEBUG("responseRead() no data");
@@ -336,9 +342,9 @@ size_t AsyncHTTPRequest::responseRead(uint8_t* buf, size_t len)
 }
 
 //**************************************************************************************************************
-size_t  AsyncHTTPRequest::available()
+size_t  AsyncHTTPRequest::available() const
 {
-  if (_readyState < readyStateLoading)
+  if (_readyState < ReadyState::Loading)
     return 0;
 
   if (_chunked && (_contentLength - _contentRead) < _response->available())
@@ -350,9 +356,9 @@ size_t  AsyncHTTPRequest::available()
 }
 
 //**************************************************************************************************************
-size_t  AsyncHTTPRequest::responseLength()
+size_t  AsyncHTTPRequest::responseLength() const
 {
-  if (_readyState < readyStateLoading)
+  if (_readyState < ReadyState::Loading)
     return 0;
 
   return _contentLength;
@@ -368,12 +374,12 @@ void  AsyncHTTPRequest::onData(onDataCB cb, void* arg)
 }
 
 //**************************************************************************************************************
-uint32_t AsyncHTTPRequest::elapsedTime()
+uint32_t AsyncHTTPRequest::elapsedTime() const
 {
-  if (_readyState <= readyStateOpened)
+  if (_readyState <= ReadyState::Opened)
     return 0;
 
-  if (_readyState != readyStateDone)
+  if (_readyState != ReadyState::Done)
   {
     return millis() - _requestStartTime;
   }
@@ -382,7 +388,7 @@ uint32_t AsyncHTTPRequest::elapsedTime()
 }
 
 //**************************************************************************************************************
-String AsyncHTTPRequest::version()
+String AsyncHTTPRequest::version() const
 {
   return String(AsyncHTTPRequest_Generic_version);
 }
@@ -497,7 +503,7 @@ bool  AsyncHTTPRequest::_connect()
       AHTTP_LOGDEBUG3("client.connect failed:", _URL->host, ",", _URL->port);
 
       _HTTPcode = HTTPCODE_NOT_CONNECTED;
-      _setReadyState(readyStateDone);
+      _setReadyState(ReadyState::Done);
 
       return false;
     }
@@ -596,13 +602,13 @@ size_t  AsyncHTTPRequest::_send()
 }
 
 //**************************************************************************************************************
-void  AsyncHTTPRequest::_setReadyState(reqStates newState) 
+void  AsyncHTTPRequest::_setReadyState(ReadyState readyState)
 {
-  if (_readyState != newState)
+  if (_readyState != readyState)
   {
-    _readyState = newState;
+    _readyState = readyState;
 
-    AHTTP_LOGDEBUG1("_setReadyState :", _readyState);
+    AHTTP_LOGDEBUG1("_setReadyState :", int(_readyState));
 
     if (_readyStateChangeCB)
     {
@@ -651,7 +657,7 @@ void  AsyncHTTPRequest::_processChunks()
       _requestEndTime = millis();
       _lastActivity = 0;
       _timeout = 0;
-      _setReadyState(readyStateDone);
+      _setReadyState(ReadyState::Done);
 
       return;
     }
@@ -674,7 +680,7 @@ void  AsyncHTTPRequest::_onConnect(AsyncClient* client)
 
   _lock;
   _client = client;
-  _setReadyState(readyStateOpened);
+  _setReadyState(ReadyState::Opened);
   _response = new xbuf;
   _contentLength = 0;
   _contentRead = 0;
@@ -735,12 +741,12 @@ void  AsyncHTTPRequest::_onDisconnect(AsyncClient* client)
 
   _lock;
   
-  if (_readyState < readyStateOpened)
+  if (_readyState < ReadyState::Opened)
   {
     _HTTPcode = HTTPCODE_NOT_CONNECTED;
   }
   else if (_HTTPcode > 0 &&
-           (_readyState < readyStateHdrsRecvd || (_contentRead + _response->available()) < _contentLength))
+           (_readyState < ReadyState::HdrsRecvd || (_contentRead + _response->available()) < _contentLength))
   {
     _HTTPcode = HTTPCODE_CONNECTION_LOST;
   }
@@ -754,7 +760,7 @@ void  AsyncHTTPRequest::_onDisconnect(AsyncClient* client)
   _connectedPort = -1;
   _requestEndTime = millis();
   _lastActivity = 0;
-  _setReadyState(readyStateDone);
+  _setReadyState(ReadyState::Done);
   _unlock;
 }
 
@@ -777,16 +783,16 @@ void  AsyncHTTPRequest::_onData(void* Vbuf, size_t len)
   }
 
   // if headers not complete, collect them. If still not complete, just return.
-  if (_readyState == readyStateOpened)
+  if (_readyState == ReadyState::Opened)
   {
     if ( ! _collectHeaders()) 
       return;
   }
 
   // If there's data in the buffer and not Done, advance readyState to Loading.
-  if (_response->available() && _readyState != readyStateDone)
+  if (_response->available() && _readyState != ReadyState::Done)
   {
-    _setReadyState(readyStateLoading);
+    _setReadyState(ReadyState::Loading);
   }
 
   // If not chunked and all data read, close it up.
@@ -808,7 +814,7 @@ void  AsyncHTTPRequest::_onData(void* Vbuf, size_t len)
     _requestEndTime = millis();
     _lastActivity = 0;
     _timeout = 0;
-    _setReadyState(readyStateDone);
+    _setReadyState(ReadyState::Done);
   }
 
   // If onData callback requested, do so.
@@ -840,7 +846,7 @@ bool  AsyncHTTPRequest::_collectHeaders()
     // If empty line, all headers are in, advance readyState.
     if (headerLine.length() == 2)
     {
-      _setReadyState(readyStateHdrsRecvd);
+      _setReadyState(ReadyState::HdrsRecvd);
     }
     // If line is HTTP header, capture HTTPcode.
     else if (headerLine.substring(0, 7) == "HTTP/1.")
@@ -861,7 +867,7 @@ bool  AsyncHTTPRequest::_collectHeaders()
         _addHeader(name.c_str(), value.c_str());
       }
     }
-  } while (_readyState == readyStateOpened);
+  } while (_readyState == ReadyState::Opened);
 
   // If content-Length header, set _contentLength
   header *hdr = _getHeader("Content-Length");
@@ -901,7 +907,7 @@ bool  AsyncHTTPRequest::_collectHeaders()
 //**************************************************************************************************************
 void AsyncHTTPRequest::setReqHeader(const char* name, const char* value)
 {
-  if (_readyState <= readyStateOpened && _headers)
+  if (_readyState <= ReadyState::Opened && _headers)
   {
     _addHeader(name, value);
   }
@@ -910,7 +916,7 @@ void AsyncHTTPRequest::setReqHeader(const char* name, const char* value)
 //**************************************************************************************************************
 void AsyncHTTPRequest::setReqHeader(const char* name, int32_t value)
 {
-  if (_readyState <= readyStateOpened && _headers)
+  if (_readyState <= ReadyState::Opened && _headers)
   {
     setReqHeader(name, String(value).c_str());
   }
@@ -921,7 +927,7 @@ void AsyncHTTPRequest::setReqHeader(const char* name, int32_t value)
 //**************************************************************************************************************
 void AsyncHTTPRequest::setReqHeader(const char* name, const __FlashStringHelper* value)
 {
-  if (_readyState <= readyStateOpened && _headers)
+  if (_readyState <= ReadyState::Opened && _headers)
   {
     char* _value = _charstar(value);
     _addHeader(name, _value);
@@ -932,7 +938,7 @@ void AsyncHTTPRequest::setReqHeader(const char* name, const __FlashStringHelper*
 //**************************************************************************************************************
 void AsyncHTTPRequest::setReqHeader(const __FlashStringHelper *name, const char* value)
 {
-  if (_readyState <= readyStateOpened && _headers)
+  if (_readyState <= ReadyState::Opened && _headers)
   {
     char* _name = _charstar(name);
     _addHeader(_name, value);
@@ -943,7 +949,7 @@ void AsyncHTTPRequest::setReqHeader(const __FlashStringHelper *name, const char*
 //**************************************************************************************************************
 void AsyncHTTPRequest::setReqHeader(const __FlashStringHelper *name, const __FlashStringHelper* value)
 {
-  if (_readyState <= readyStateOpened && _headers)
+  if (_readyState <= ReadyState::Opened && _headers)
   {
     char* _name = _charstar(name);
     char* _value = _charstar(value);
@@ -956,7 +962,7 @@ void AsyncHTTPRequest::setReqHeader(const __FlashStringHelper *name, const __Fla
 //**************************************************************************************************************
 void AsyncHTTPRequest::setReqHeader(const __FlashStringHelper *name, int32_t value)
 {
-  if (_readyState <= readyStateOpened && _headers)
+  if (_readyState <= ReadyState::Opened && _headers)
   {
     char* _name = _charstar(name);
     setReqHeader(_name, String(value).c_str());
@@ -969,7 +975,7 @@ void AsyncHTTPRequest::setReqHeader(const __FlashStringHelper *name, int32_t val
 //**************************************************************************************************************
 int AsyncHTTPRequest::respHeaderCount()
 {
-  if (_readyState < readyStateHdrsRecvd)
+  if (_readyState < ReadyState::HdrsRecvd)
     return 0;
 
   int count = 0;
@@ -987,7 +993,7 @@ int AsyncHTTPRequest::respHeaderCount()
 //**************************************************************************************************************
 char* AsyncHTTPRequest::respHeaderName(int ndx) 
 {
-  if (_readyState < readyStateHdrsRecvd) 
+  if (_readyState < ReadyState::HdrsRecvd)
     return nullptr;
     
   header* hdr = _getHeader(ndx);
@@ -1001,7 +1007,7 @@ char* AsyncHTTPRequest::respHeaderName(int ndx)
 //**************************************************************************************************************
 char* AsyncHTTPRequest::respHeaderValue(const char* name)
 {
-  if (_readyState < readyStateHdrsRecvd)
+  if (_readyState < ReadyState::HdrsRecvd)
     return nullptr;
 
   header* hdr = _getHeader(name);
@@ -1015,7 +1021,7 @@ char* AsyncHTTPRequest::respHeaderValue(const char* name)
 //**************************************************************************************************************
 char* AsyncHTTPRequest::respHeaderValue(int ndx)
 {
-  if (_readyState < readyStateHdrsRecvd)
+  if (_readyState < ReadyState::HdrsRecvd)
     return nullptr;
 
   header* hdr = _getHeader(ndx);
@@ -1029,7 +1035,7 @@ char* AsyncHTTPRequest::respHeaderValue(int ndx)
 //**************************************************************************************************************
 bool AsyncHTTPRequest::respHeaderExists(const char* name)
 {
-  if (_readyState < readyStateHdrsRecvd)
+  if (_readyState < ReadyState::HdrsRecvd)
     return false;
 
   header* hdr = _getHeader(name);
@@ -1046,7 +1052,7 @@ bool AsyncHTTPRequest::respHeaderExists(const char* name)
 //**************************************************************************************************************
 char* AsyncHTTPRequest::respHeaderValue(const __FlashStringHelper *name)
 {
-  if (_readyState < readyStateHdrsRecvd)
+  if (_readyState < ReadyState::HdrsRecvd)
     return nullptr;
 
   char* _name = _charstar(name);
@@ -1062,7 +1068,7 @@ char* AsyncHTTPRequest::respHeaderValue(const __FlashStringHelper *name)
 //**************************************************************************************************************
 bool AsyncHTTPRequest::respHeaderExists(const __FlashStringHelper *name)
 {
-  if (_readyState < readyStateHdrsRecvd)
+  if (_readyState < ReadyState::HdrsRecvd)
     return false;
 
   char* _name = _charstar(name);
