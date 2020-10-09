@@ -91,6 +91,8 @@ enum class ReadyState
     
 class AsyncHTTPRequest
 {
+    using callback_arg_t = void*;
+
     struct header
     {
       header*   next;
@@ -135,7 +137,7 @@ class AsyncHTTPRequest
       }
     };
 
-    using readyStateChangeCB = std::function<void(void*, AsyncHTTPRequest*, ReadyState readyState)>;
+    using readyStateChangeCB = std::function<void(callback_arg_t, AsyncHTTPRequest*, ReadyState readyState)>;
     using onDataCB = std::function<void(void*, AsyncHTTPRequest*, size_t available)>;
 
   public:
@@ -149,8 +151,8 @@ class AsyncHTTPRequest
     bool        debug() const;                                          // is debug on or off?
 
     bool        open(const char* method, const char* URL);              // Initiate a request
-    void        onReadyStateChange(readyStateChangeCB, void* arg = 0);  // Optional event handler for ready state change
-    void        onReadyStateChangeArg(void* arg = 0);                   // set event handlers arg
+    void        onReadyStateChange(readyStateChangeCB, callback_arg_t arg = 0);  // Optional event handler for ready state change
+    void        onReadyStateChangeArg(callback_arg_t arg = 0);                   // set event handlers arg
     // or you can simply poll readyState()
     void        setTimeout(int seconds);                                // overide default timeout (seconds)
 
@@ -217,7 +219,7 @@ class AsyncHTTPRequest
     size_t          _contentLength;             // content-length header value or sum of chunk headers
     size_t          _contentRead;               // number of bytes retrieved by user since last open()
     readyStateChangeCB  _readyStateChangeCB;    // optional callback for readyState change
-    void*           _readyStateChangeCBarg;     // associated user argument
+    callback_arg_t  _readyStateChangeCBarg;     // associated user argument
     onDataCB        _onDataCB;                  // optional callback when data received
     void*           _onDataCBarg;               // associated user argument
 

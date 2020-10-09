@@ -61,7 +61,7 @@ private:
 AsyncHTTPRequest::AsyncHTTPRequest(): _readyState(ReadyState::Idle), _HTTPcode(0), _chunked(false), _debug(DEBUG_IOTA_HTTP_SET)
   , _timeout(DEFAULT_RX_TIMEOUT), _lastActivity(0), _requestStartTime(0), _requestEndTime(0), _URL(nullptr)
   , _connectedHost(nullptr), _connectedPort(-1), _client(nullptr), _contentLength(0), _contentRead(0)
-  , _readyStateChangeCB(nullptr), _readyStateChangeCBarg(nullptr), _onDataCB(nullptr), _onDataCBarg(nullptr)
+  , _readyStateChangeCB(nullptr), _readyStateChangeCBarg{}, _onDataCB(nullptr), _onDataCBarg(nullptr)
   , _request(nullptr), _response(nullptr), _chunks(nullptr), _headers(nullptr)
 {
 #ifdef ESP32
@@ -161,14 +161,14 @@ bool  AsyncHTTPRequest::open(const char* method, const char* URL)
   return _connect();
 }
 //**************************************************************************************************************
-void AsyncHTTPRequest::onReadyStateChange(readyStateChangeCB cb, void* arg)
+void AsyncHTTPRequest::onReadyStateChange(readyStateChangeCB cb, callback_arg_t arg)
 {
   _readyStateChangeCB = cb;
   _readyStateChangeCBarg = arg;
 }
 
 //**************************************************************************************************************
-void AsyncHTTPRequest::onReadyStateChangeArg(void* arg)
+void AsyncHTTPRequest::onReadyStateChangeArg(callback_arg_t arg)
 {
   _readyStateChangeCBarg = arg;
 }
