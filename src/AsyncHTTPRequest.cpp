@@ -57,16 +57,50 @@ private:
 #endif
 }
 
-//**************************************************************************************************************
-AsyncHTTPRequest::AsyncHTTPRequest(): _readyState(ReadyState::Idle), _HTTPcode(0), _chunked(false), _debug(DEBUG_IOTA_HTTP_SET)
-  , _timeout(DEFAULT_RX_TIMEOUT), _lastActivity(0), _requestStartTime(0), _requestEndTime(0), _URL(nullptr)
-  , _connectedHost(nullptr), _connectedPort(-1), _client(nullptr), _contentLength(0), _contentRead(0)
-  , _readyStateChangeCB(nullptr), _readyStateChangeCBarg{}, _onDataCB(nullptr), _onDataCBarg(nullptr)
-  , _request(nullptr), _response(nullptr), _chunks(nullptr), _headers(nullptr)
+
+tl::optional<URL> parseURL(const String &url)
 {
-#ifdef ESP32
-  threadLock = xSemaphoreCreateRecursiveMutex();
-#endif
+  int hostBeg = 0;
+  URL _URL;
+  _URL.scheme = "HTTP://";
+
+  if (url.substring(0, 7).equalsIgnoreCase("HTTP://"))
+  {
+    hostBeg += 7;
+  }
+  else if (url.substring(0, 8).equalsIgnoreCase("HTTPS://"))
+    return {};
+
+  int pathBeg = url.indexOf('/', hostBeg);
+
+  if (pathBeg < 0)
+    return {};
+
+  int hostEnd = pathBeg;
+  int portBeg = url.indexOf(':', hostBeg);
+
+  if (portBeg > 0 && portBeg < pathBeg)
+  {
+    _URL.port = url.substring(portBeg + 1, pathBeg).toInt();
+    hostEnd = portBeg;
+  }
+  else
+    _URL.port = 80;
+
+  _URL.host = url.substring(hostBeg, hostEnd);
+
+  int queryBeg = url.indexOf('?');
+
+  if (queryBeg < 0)
+    queryBeg = url.length();
+
+  _URL.path = url.substring(pathBeg, queryBeg);
+  _URL.query = url.substring(queryBeg);
+
+  AHTTP_LOGDEBUG2("_parseURL(): scheme+host", _URL.scheme, _URL.host);
+  AHTTP_LOGDEBUG3("_parseURL(): port+path+query", _URL.port, _URL.path, _URL.query);
+
+  return _URL;
 }
 
 
@@ -76,12 +110,10 @@ AsyncHTTPRequest::~AsyncHTTPRequest()
   if (_client)
     _client->close(true);
 
-  delete _URL;
   delete _headers;
   delete _request;
   delete _response;
   delete _chunks;
-  delete[] _connectedHost;
 
 #ifdef ESP32
   vSemaphoreDelete(threadLock);
@@ -107,24 +139,27 @@ bool AsyncHTTPRequest::debug() const
 }
 
 //**************************************************************************************************************
-bool  AsyncHTTPRequest::open(const char* method, const char* URL)
+bool  AsyncHTTPRequest::open(const URL &url, HTTPmethod method)
 {
-  AHTTP_LOGDEBUG3("open(", method, ", url =", URL);
+  AHTTP_LOGDEBUG3("open(url =", url.toString(), ", method =", toString<String>(method));
 
-  if (_readyState != ReadyState::Idle && _readyState != ReadyState::Unsent && _readyState != ReadyState::Done)
+  switch (_readyState)
   {
+  case ReadyState::Idle:
+  case ReadyState::Unsent:
+  case ReadyState::Done:
+    break;
+  default:
     return false;
   }
 
   _requestStartTime = millis();
-  
-  delete _URL;
+
   delete _headers;
   delete _request;
   delete _response;
   delete _chunks;
-  
-  _URL         = nullptr;
+
   _headers      = nullptr;
   _response     = nullptr;
   _request      = nullptr;
@@ -132,30 +167,16 @@ bool  AsyncHTTPRequest::open(const char* method, const char* URL)
   _chunked      = false;
   _contentRead  = 0;
   _readyState   = ReadyState::Unsent;
+  _HTTPmethod = method;
 
-  if (strcmp(method, "GET") == 0)
-  {
-    _HTTPmethod = HTTPmethodGET;
-  }
-  else if (strcmp(method, "POST") == 0)
-  {
-    _HTTPmethod = HTTPmethodPOST;
-  }
-  else
-    return false;
+  _URL = url;
 
-  if (!_parseURL(URL))
-  {
-    return false;
-  }
-  if ( _client && _client->connected() && (strcmp(_URL->host, _connectedHost) != 0 || _URL->port != _connectedPort))
+  if ( _client && _client->connected() && (_URL.host != _connectedHost || _URL.port != _connectedPort))
   {
     return false;
   }
 
-  char hostName[strlen(_URL->host) + 10];
-  sprintf(hostName, "%s:%d", _URL->host, _URL->port);
-  _addHeader("host", hostName);
+  _addHeader("host", _URL.host + ':' + _URL.port);
   _lastActivity = millis();
 
   return _connect();
@@ -188,7 +209,7 @@ bool  AsyncHTTPRequest::send()
 
   _lock;
   
-  if ( ! _buildRequest()) 
+  if (!_buildRequest())
     return false;
     
   _send();
@@ -434,64 +455,6 @@ String AsyncHTTPRequest::version() const
   _______________________________________________________________________________________________________________*/
 
 //**************************************************************************************************************
-bool  AsyncHTTPRequest::_parseURL(const char* url)
-{
-  return _parseURL(String(url));
-}
-
-//**************************************************************************************************************
-bool  AsyncHTTPRequest::_parseURL(String url)
-{
-  delete _URL;
-  
-  int hostBeg = 0;
-  _URL = new URL;
-  _URL->scheme = new char[8];
-  strcpy(_URL->scheme, "HTTP://");
-
-  if (url.substring(0, 7).equalsIgnoreCase("HTTP://"))
-  {
-    hostBeg += 7;
-  }
-  else if (url.substring(0, 8).equalsIgnoreCase("HTTPS://"))
-  {
-    return false;
-  }
-
-  int pathBeg = url.indexOf('/', hostBeg);
-
-  if (pathBeg < 0)
-    return false;
-
-  int hostEnd = pathBeg;
-  int portBeg = url.indexOf(':', hostBeg);
-
-  if (portBeg > 0 && portBeg < pathBeg)
-  {
-    _URL->port = url.substring(portBeg + 1, pathBeg).toInt();
-    hostEnd = portBeg;
-  }
-
-  _URL->host = new char[hostEnd - hostBeg + 1];
-  strcpy(_URL->host, url.substring(hostBeg, hostEnd).c_str());
-
-  int queryBeg = url.indexOf('?');
-  
-  if (queryBeg < 0) 
-    queryBeg = url.length();
-    
-  _URL->path = new char[queryBeg - pathBeg + 1];
-  strcpy(_URL->path, url.substring(pathBeg, queryBeg).c_str());
-  _URL->query = new char[url.length() - queryBeg + 1];
-  strcpy(_URL->query, url.substring(queryBeg).c_str());
-
-  AHTTP_LOGDEBUG2("_parseURL(): scheme+host", _URL->scheme, _URL->host);
-  AHTTP_LOGDEBUG3("_parseURL(): port+path+query", _URL->port, _URL->path, _URL->query);
-
-  return true;
-}
-
-//**************************************************************************************************************
 bool  AsyncHTTPRequest::_connect()
 {
   AHTTP_LOGDEBUG("_connect()");
@@ -501,11 +464,8 @@ bool  AsyncHTTPRequest::_connect()
     _client = new AsyncClient();
   }
 
-  delete[] _connectedHost;
-
-  _connectedHost = new char[strlen(_URL->host) + 1];
-  strcpy(_connectedHost, _URL->host);
-  _connectedPort = _URL->port;
+  _connectedHost = _URL.host;
+  _connectedPort = _URL.port;
   
   _client->onConnect([](void *obj, AsyncClient * client) 
   {
@@ -529,9 +489,9 @@ bool  AsyncHTTPRequest::_connect()
 
   if ( ! _client->connected())
   {
-    if ( ! _client->connect(_URL->host, _URL->port))
+    if ( ! _client->connect(_URL.host.c_str(), _URL.port))
     {
-      AHTTP_LOGDEBUG3("client.connect failed:", _URL->host, ",", _URL->port);
+      AHTTP_LOGDEBUG3("client.connect failed:", _URL.host, ",", _URL.port);
 
       _HTTPcode = HTTPCODE_NOT_CONNECTED;
       _setReadyState(ReadyState::Done);
@@ -558,14 +518,14 @@ bool   AsyncHTTPRequest::_buildRequest()
   if ( ! _request)
     _request = new xbuf;
 
-  _request->write(_HTTPmethod == HTTPmethodGET ? "GET " : "POST ");
-  _request->write(_URL->path);
-  _request->write(_URL->query);
+  _request->write(toString<String>(_HTTPmethod));
+  _request->write(' ');
+  _request->write(_URL.path);
+  _request->write(_URL.query);
   _request->write(" HTTP/1.1\r\n");
 
-  delete _URL;
+  _URL = {};
 
-  _URL = nullptr;
   header* hdr = _headers;
 
   while (hdr)
@@ -579,6 +539,7 @@ bool   AsyncHTTPRequest::_buildRequest()
 
   delete _headers;
   _headers = nullptr;
+
   _request->write("\r\n");
 
   return true;
@@ -672,9 +633,9 @@ void  AsyncHTTPRequest::_processChunks()
 
     if (chunkLength == 0)
     {
-      char* connectionHdr = respHeaderValue("connection");
+      const auto connectionHdr = respHeaderValue("connection");
 
-      if (connectionHdr && (strcasecmp_P(connectionHdr, PSTR("disconnect")) == 0))
+      if (connectionHdr && connectionHdr == "disconnect")
       {
         AHTTP_LOGDEBUG("*all chunks received - closing TCP");
 
@@ -785,10 +746,9 @@ void  AsyncHTTPRequest::_onDisconnect(AsyncClient* client)
   delete _client;
   _client = nullptr;
   
-  delete[] _connectedHost;
-  _connectedHost = nullptr;
-  
+  _connectedHost = String{};
   _connectedPort = -1;
+
   _requestEndTime = millis();
   _lastActivity = 0;
   _setReadyState(ReadyState::Done);
@@ -829,9 +789,9 @@ void  AsyncHTTPRequest::_onData(void* Vbuf, size_t len)
   // If not chunked and all data read, close it up.
   if ( ! _chunked && (_response->available() + _contentRead) >= _contentLength)
   {
-    char* connectionHdr = respHeaderValue("connection");
+    const auto connectionHdr = respHeaderValue("connection");
 
-    if (connectionHdr && (strcasecmp_P(connectionHdr, PSTR("disconnect")) == 0))
+    if (connectionHdr && connectionHdr == "disconnect")
     {
       AHTTP_LOGDEBUG("*all data received - closing TCP");
 
@@ -905,13 +865,13 @@ bool  AsyncHTTPRequest::_collectHeaders()
 
   if (hdr)
   {
-    _contentLength = strtol(hdr->value, nullptr, 10);
+    _contentLength = hdr->value.toInt();
   }
 
   // If chunked specified, try to set _contentLength to size of first chunk
   hdr = _getHeader("Transfer-Encoding");
 
-  if (hdr && strcasecmp_P(hdr->value, PSTR("chunked")) == 0)
+  if (hdr && hdr->value == "chunked")
   {
     AHTTP_LOGDEBUG("*transfer-encoding: chunked");
 
@@ -1022,76 +982,69 @@ int AsyncHTTPRequest::respHeaderCount()
 }
 
 //**************************************************************************************************************
-char* AsyncHTTPRequest::respHeaderName(int ndx) 
+String AsyncHTTPRequest::respHeaderName(int ndx)
 {
   if (_readyState < ReadyState::HdrsRecvd)
-    return nullptr;
+    return {};
     
   header* hdr = _getHeader(ndx);
   
   if ( ! hdr) 
-    return nullptr;
+    return {};
     
   return hdr->name;
 }
 
 //**************************************************************************************************************
-char* AsyncHTTPRequest::respHeaderValue(const char* name)
+String AsyncHTTPRequest::respHeaderValue(const String &name)
 {
   if (_readyState < ReadyState::HdrsRecvd)
-    return nullptr;
+    return {};
 
   header* hdr = _getHeader(name);
 
   if ( ! hdr)
-    return nullptr;
+    return {};
 
   return hdr->value;
 }
 
 //**************************************************************************************************************
-char* AsyncHTTPRequest::respHeaderValue(int ndx)
+String AsyncHTTPRequest::respHeaderValue(int ndx)
 {
   if (_readyState < ReadyState::HdrsRecvd)
-    return nullptr;
+    return {};
 
   header* hdr = _getHeader(ndx);
 
   if ( ! hdr)
-    return nullptr;
+    return {};
 
   return hdr->value;
 }
 
 //**************************************************************************************************************
-bool AsyncHTTPRequest::respHeaderExists(const char* name)
+bool AsyncHTTPRequest::respHeaderExists(const String &name)
 {
   if (_readyState < ReadyState::HdrsRecvd)
     return false;
 
-  header* hdr = _getHeader(name);
-
-  if ( ! hdr)
-    return false;
-
-  return true;
+  return _getHeader(name);
 }
 
 
 #if (ESP32 || ESP8266)
 
 //**************************************************************************************************************
-char* AsyncHTTPRequest::respHeaderValue(const __FlashStringHelper *name)
+String AsyncHTTPRequest::respHeaderValue(const __FlashStringHelper *name)
 {
   if (_readyState < ReadyState::HdrsRecvd)
-    return nullptr;
+    return {};
 
-  char* _name = _charstar(name);
-  header* hdr = _getHeader(_name);
-  delete[] _name;
+  header* hdr = _getHeader(name);
 
   if ( ! hdr)
-    return nullptr;
+    return {};
 
   return hdr->value;
 }
@@ -1102,14 +1055,7 @@ bool AsyncHTTPRequest::respHeaderExists(const __FlashStringHelper *name)
   if (_readyState < ReadyState::HdrsRecvd)
     return false;
 
-  char* _name = _charstar(name);
-  header* hdr = _getHeader(_name);
-  delete[] _name;
-
-  if ( ! hdr)
-    return false;
-
-  return true;
+  return _getHeader(name);
 }
 
 #endif
@@ -1137,14 +1083,14 @@ String AsyncHTTPRequest::headers()
 }
 
 //**************************************************************************************************************
-AsyncHTTPRequest::header*  AsyncHTTPRequest::_addHeader(const char* name, const char* value)
+AsyncHTTPRequest::header*  AsyncHTTPRequest::_addHeader(const String &name, const String &value)
 {
   _lock;
   header* hdr = (header*) &_headers;
 
   while (hdr->next)
   {
-    if (strcasecmp(name, hdr->next->name) == 0)
+    if (name.equalsIgnoreCase(hdr->next->name))
     {
       header* oldHdr = hdr->next;
       hdr->next = hdr->next->next;
@@ -1158,24 +1104,22 @@ AsyncHTTPRequest::header*  AsyncHTTPRequest::_addHeader(const char* name, const 
   }
 
   hdr->next = new header;
-  hdr->next->name = new char[strlen(name) + 1];
-  strcpy(hdr->next->name, name);
-  hdr->next->value = new char[strlen(value) + 1];
-  strcpy(hdr->next->value, value);
+  hdr->next->name = name;
+  hdr->next->value = value;
   _unlock;
 
   return hdr->next;
 }
 
 //**************************************************************************************************************
-AsyncHTTPRequest::header* AsyncHTTPRequest::_getHeader(const char* name)
+AsyncHTTPRequest::header* AsyncHTTPRequest::_getHeader(const String &name)
 {
   _lock;
   header* hdr = _headers;
 
   while (hdr)
   {
-    if (strcasecmp(name, hdr->name) == 0)
+    if (name.equalsIgnoreCase(hdr->name))
       break;
 
     hdr = hdr->next;

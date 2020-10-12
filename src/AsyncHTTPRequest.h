@@ -29,6 +29,9 @@
 #define AsyncHTTPRequest_Generic_version   "1.0.0"
 
 #include <Arduino.h>
+#include <WString.h>
+
+#include <include/tl/optional.hpp>
 
 #include "AsyncHTTPRequest_Debug.h"
 
@@ -88,60 +91,88 @@ enum class ReadyState
     Loading,           // receiving, partial data available
     Done               // Request complete, all data available.
 };
-    
+
+namespace {
+//! Helper utility to convert a ReadyState into a string
+//! String library agnostic, can be used with std::string or Arduino's WString
+template<typename T>
+T toString(ReadyState state)
+{
+    switch (state)
+    {
+    case ReadyState::Idle:      return "Idle";
+    case ReadyState::Unsent:    return "Unsent";
+    case ReadyState::Opened:    return "Opened";
+    case ReadyState::HdrsRecvd: return "HdrsRecvd";
+    case ReadyState::Loading:   return "Loading";
+    case ReadyState::Done:      return "Done";
+    }
+
+    return T{"Unknown ReadyState("} + int(state) + ')';
+}
+}
+
+enum class HTTPmethod
+{
+    GET,
+    POST
+};
+
+namespace {
+//! Helper utility to convert a HTTPmethod into a string
+//! String library agnostic, can be used with std::string or Arduino's WString
+template<typename T>
+T toString(HTTPmethod method)
+{
+    switch (method)
+    {
+    case HTTPmethod::GET:  return "GET";
+    case HTTPmethod::POST: return "POST";
+    }
+
+    return T{"Unknown HTTPmethod("} + int(method) + ')';
+}
+}
+
+struct  URL
+{
+  String   scheme;
+  String   user;
+  String   pwd;
+  String   host;
+  int     port;
+  String   path;
+  String   query;
+  String   fragment;
+
+  String toString() const
+  {
+      return scheme + user + pwd + host + ':' + port + path + query + fragment;
+  }
+};
+
+tl::optional<URL> parseURL(const String &url);
+
 class AsyncHTTPRequest
 {
     using callback_arg_t = void*;
 
     struct header
     {
-      header*   next;
-      char*     name;
-      char*     value;
-      
-      header(): next(nullptr), name(nullptr), value(nullptr)
-      {};
+      header*   next{};
+      String     name;
+      String     value;
       
       ~header() 
       {
-        delete[] name;
-        delete[] value;
         delete next;
       }
     };
 
-    struct  URL 
-    {
-      char*   scheme;
-      char*   user;
-      char*   pwd;
-      char*   host;
-      int     port;
-      char*   path;
-      char*   query;
-      char*   fragment;
-      
-      URL():  scheme(nullptr), user(nullptr), pwd(nullptr), host(nullptr),
-              port(80), path(nullptr), query(nullptr), fragment(nullptr)
-      {};
-      
-      ~URL() 
-      {
-        delete[] scheme;
-        delete[] user;
-        delete[] pwd;
-        delete[] host;
-        delete[] path;
-        delete[] query;
-        delete[] fragment;
-      }
-    };
-
     using readyStateChangeCB = std::function<void(callback_arg_t, AsyncHTTPRequest*, ReadyState readyState)>;
-    using onDataCB = std::function<void(void*, AsyncHTTPRequest*, size_t available)>;
+    using onDataCB = std::function<void(void*, AsyncHTTPRequest*, size_t available)>;    
 
   public:
-    AsyncHTTPRequest();
     ~AsyncHTTPRequest();
 
 
@@ -150,7 +181,7 @@ class AsyncHTTPRequest
     void        setDebug(bool);                                         // Turn debug message on/off
     bool        debug() const;                                          // is debug on or off?
 
-    bool        open(const char* method, const char* URL);              // Initiate a request
+    bool        open(const URL &url, HTTPmethod method = HTTPmethod::GET); // Initiate a request
     void        onReadyStateChange(readyStateChangeCB, callback_arg_t arg = 0);  // Optional event handler for ready state change
     void        onReadyStateChangeArg(callback_arg_t arg = 0);                   // set event handlers arg
     // or you can simply poll readyState()
@@ -176,14 +207,14 @@ class AsyncHTTPRequest
     ReadyState  readyState() const;                                     // Return the ready state
 
     int         respHeaderCount();                                      // Retrieve count of response headers
-    char*       respHeaderName(int index);                              // Return header name by index
-    char*       respHeaderValue(int index);                             // Return header value by index
-    char*       respHeaderValue(const char* name);                      // Return header value by name
+    String      respHeaderName(int index);                              // Return header name by index
+    String      respHeaderValue(int index);                             // Return header value by index
+    String      respHeaderValue(const String &name);                    // Return header value by name
     
-    bool        respHeaderExists(const char* name);                     // Does header exist by name?
+    bool        respHeaderExists(const String &name);                   // Does header exist by name?
     
 #if (ESP32 || ESP8266)
-    char*       respHeaderValue(const __FlashStringHelper *name);
+    String      respHeaderValue(const __FlashStringHelper *name);
     bool        respHeaderExists(const __FlashStringHelper *name);
 #endif
     
@@ -200,48 +231,45 @@ class AsyncHTTPRequest
     //___________________________________________________________________________________________________________________________________
 
   private:
+    HTTPmethod _HTTPmethod;
 
-    enum    {HTTPmethodGET, HTTPmethodPOST} _HTTPmethod;
+    ReadyState _readyState{ReadyState::Idle};
 
-    ReadyState _readyState;
-
-    int16_t         _HTTPcode;                  // HTTP response code or (negative) exception code
-    bool            _chunked;                   // Processing chunked response
-    bool            _debug;                     // Debug state
-    uint32_t        _timeout;                   // Default or user overide RxTimeout in seconds
-    uint32_t        _lastActivity;              // Time of last activity
-    uint32_t        _requestStartTime;          // Time last open() issued
-    uint32_t        _requestEndTime;            // Time of last disconnect
-    URL*            _URL;                       // -> URL data structure
-    char*           _connectedHost;             // Host when connected
-    int             _connectedPort;             // Port when connected
-    AsyncClient*    _client;                    // ESPAsyncTCP AsyncClient instance
-    size_t          _contentLength;             // content-length header value or sum of chunk headers
-    size_t          _contentRead;               // number of bytes retrieved by user since last open()
-    readyStateChangeCB  _readyStateChangeCB;    // optional callback for readyState change
-    callback_arg_t  _readyStateChangeCBarg;     // associated user argument
-    onDataCB        _onDataCB;                  // optional callback when data received
-    void*           _onDataCBarg;               // associated user argument
+    int16_t         _HTTPcode{0};                 // HTTP response code or (negative) exception code
+    bool            _chunked{false};              // Processing chunked response
+    bool            _debug{DEBUG_IOTA_HTTP_SET};  // Debug state
+    uint32_t        _timeout{DEFAULT_RX_TIMEOUT}; // Default or user overide RxTimeout in seconds
+    uint32_t        _lastActivity{0};             // Time of last activity
+    uint32_t        _requestStartTime{0};         // Time last open() issued
+    uint32_t        _requestEndTime{0};           // Time of last disconnect
+    URL             _URL{};                       // -> URL data structure
+    String          _connectedHost;               // Host when connected
+    int             _connectedPort{-1};           // Port when connected
+    AsyncClient*    _client{nullptr};             // ESPAsyncTCP AsyncClient instance
+    size_t          _contentLength{0};            // content-length header value or sum of chunk headers
+    size_t          _contentRead{0};              // number of bytes retrieved by user since last open()
+    readyStateChangeCB _readyStateChangeCB{};     // optional callback for readyState change
+    callback_arg_t  _readyStateChangeCBarg{};     // associated user argument
+    onDataCB        _onDataCB{nullptr};           // optional callback when data received
+    void*           _onDataCBarg{nullptr};        // associated user argument
 
 #ifdef ESP32
-    SemaphoreHandle_t threadLock;
+    SemaphoreHandle_t threadLock{xSemaphoreCreateRecursiveMutex()};
 #endif
 
     // request and response String buffers and header list (same queue for request and response).
 
-    xbuf*       _request;                       // Tx data buffer
-    xbuf*       _response;                      // Rx data buffer for headers
-    xbuf*       _chunks;                        // First stage for chunked response
-    header*     _headers;                       // request or (readyState > readyStateHdrsRcvd) response headers
+    xbuf*       _request{nullptr};              // Tx data buffer
+    xbuf*       _response{nullptr};             // Rx data buffer for headers
+    xbuf*       _chunks{nullptr};               // First stage for chunked response
+    header*     _headers{nullptr};              // request or (readyState > readyStateHdrsRcvd) response headers
 
     // Protected functions
 
-    header*     _addHeader(const char*, const char*);
-    header*     _getHeader(const char*);
-    header*     _getHeader(int);
+    header*     _addHeader(const String &name, const String &value);
+    header*     _getHeader(const String &name);
+    header*     _getHeader(int idx);
     bool        _buildRequest();
-    bool        _parseURL(const char*);
-    bool        _parseURL(String);
     void        _processChunks();
     bool        _connect();
     size_t      _send();

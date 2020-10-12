@@ -47,6 +47,10 @@
     {
       "name": "STM32 AsyncTCP",
       "platforms": "ststm32"
+    },
+    {
+    	"name": "https://github.com/0xFEEDC0DE64/optional.git",
+    	"platforms": ["espressif8266", "espressif32"]
     }
   ]
 }
