@@ -353,7 +353,7 @@ String AsyncHTTPRequest::responseText()
   {
     AHTTP_LOGDEBUG("responseText() no buffer");
 
-    _HTTPcode = HTTPCODE_TOO_LESS_RAM;
+    _HTTPcode = HttpCode::TOO_LESS_RAM;
     _client->abort();
     _unlock;
     
@@ -493,7 +493,7 @@ bool  AsyncHTTPRequest::_connect()
     {
       AHTTP_LOGDEBUG3("client.connect failed:", _URL.host, ",", _URL.port);
 
-      _HTTPcode = HTTPCODE_NOT_CONNECTED;
+      _HTTPcode = HttpCode::NOT_CONNECTED;
       _setReadyState(ReadyState::Done);
 
       return false;
@@ -705,7 +705,7 @@ void  AsyncHTTPRequest::_onPoll(AsyncClient* client)
   if (_timeout && (millis() - _lastActivity) > (_timeout * 1000))
   {
     _client->close();
-    _HTTPcode = HTTPCODE_TIMEOUT;
+    _HTTPcode = HttpCode::TIMEOUT;
 
     AHTTP_LOGDEBUG("_onPoll timeout");
   }
@@ -735,12 +735,12 @@ void  AsyncHTTPRequest::_onDisconnect(AsyncClient* client)
   
   if (_readyState < ReadyState::Opened)
   {
-    _HTTPcode = HTTPCODE_NOT_CONNECTED;
+    _HTTPcode = HttpCode::NOT_CONNECTED;
   }
   else if (_HTTPcode > 0 &&
            (_readyState < ReadyState::HdrsRecvd || (_contentRead + _response->available()) < _contentLength))
   {
-    _HTTPcode = HTTPCODE_CONNECTION_LOST;
+    _HTTPcode = HttpCode::CONNECTION_LOST;
   }
 
   delete _client;

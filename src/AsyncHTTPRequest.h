@@ -70,17 +70,43 @@
 
 #define DEFAULT_RX_TIMEOUT 3                    // Seconds for timeout
 
-#define HTTPCODE_CONNECTION_REFUSED  (-1)
-#define HTTPCODE_SEND_HEADER_FAILED  (-2)
-#define HTTPCODE_SEND_PAYLOAD_FAILED (-3)
-#define HTTPCODE_NOT_CONNECTED       (-4)
-#define HTTPCODE_CONNECTION_LOST     (-5)
-#define HTTPCODE_NO_STREAM           (-6)
-#define HTTPCODE_NO_HTTP_SERVER      (-7)
-#define HTTPCODE_TOO_LESS_RAM        (-8)
-#define HTTPCODE_ENCODING            (-9)
-#define HTTPCODE_STREAM_WRITE        (-10)
-#define HTTPCODE_TIMEOUT             (-11)
+namespace HttpCode
+{
+enum
+{
+    CONNECTION_REFUSED  = -1,
+    SEND_HEADER_FAILED  = -2,
+    SEND_PAYLOAD_FAILED = -3,
+    NOT_CONNECTED       = -4,
+    CONNECTION_LOST     = -5,
+    NO_STREAM           = -6,
+    NO_HTTP_SERVER      = -7,
+    TOO_LESS_RAM        = -8,
+    ENCODING            = -9,
+    STREAM_WRITE        = -10,
+    TIMEOUT             = -11,
+};
+
+inline String toString(int code)
+{
+    switch (code)
+    {
+    case CONNECTION_REFUSED:  return "CONNECTION_REFUSED";
+    case SEND_HEADER_FAILED:  return "SEND_HEADER_FAILED";
+    case SEND_PAYLOAD_FAILED: return "SEND_PAYLOAD_FAILED";
+    case NOT_CONNECTED:       return "NOT_CONNECTED";
+    case CONNECTION_LOST:     return "CONNECTION_LOST";
+    case NO_STREAM:           return "NO_STREAM";
+    case NO_HTTP_SERVER:      return "NO_HTTP_SERVER";
+    case TOO_LESS_RAM:        return "TOO_LESS_RAM";
+    case ENCODING:            return "ENCODING";
+    case STREAM_WRITE:        return "STREAM_WRITE";
+    case TIMEOUT:             return "TIMEOUT";
+    }
+
+    return String{code};
+}
+}
 
 enum class ReadyState
 {
