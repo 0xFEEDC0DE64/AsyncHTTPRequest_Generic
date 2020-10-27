@@ -31,7 +31,7 @@
 #include <Arduino.h>
 #include <WString.h>
 
-#include <include/tl/optional.hpp>
+#include <optional>
 
 #include "AsyncHTTPRequest_Debug.h"
 
@@ -177,7 +177,7 @@ struct  URL
   }
 };
 
-tl::optional<URL> parseURL(const String &url);
+std::optional<URL> parseURL(const String &url);
 
 class AsyncHTTPRequest
 {
