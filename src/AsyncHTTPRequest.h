@@ -243,6 +243,8 @@ class AsyncHTTPRequest
     String      respHeaderValue(const __FlashStringHelper *name);
     bool        respHeaderExists(const __FlashStringHelper *name);
 #endif
+
+    const URL &url() const { return _URL; }
     
     String      headers();                                              // Return all headers as String
 

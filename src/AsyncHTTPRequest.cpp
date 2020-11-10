@@ -524,8 +524,6 @@ bool   AsyncHTTPRequest::_buildRequest()
   _request->write(_URL.query);
   _request->write(" HTTP/1.1\r\n");
 
-  _URL = {};
-
   header* hdr = _headers;
 
   while (hdr)
